@@ -33,7 +33,7 @@ jobs:
           
           api_id = os.environ.get('TG_API_ID')
           api_hash = os.environ.get('TG_API_HASH')
-          # لێرەدا فەنکشنی strip() مان داناوە بۆ پاککردنەوەی هەموو بۆشایی و ئینتەرێکی زیادە لە کۆدەکەدا
+          # پاککردنەوەی کۆدەکە لە هەر بۆشایی و ئینتەرێکی زیادە
           session_string = os.environ.get('TG_SESSION', '').strip()
           url = os.environ.get('TG_URL')
           
@@ -55,12 +55,25 @@ jobs:
                   print(f'🔍 دەگەڕێم بەدوای نامەی ژمارە {msg_id} لە {chat_id}...')
                   msg = await app.get_messages(chat_id, msg_id)
                   
-                  if not msg or (not msg.video and not msg.document):
-                      print('❌ هیچ ڤیدیۆیەک لەم پۆستەدا نییە!')
-                      sys.exit(1)
+                  # گەڕان بەدوای ڤیدیۆکە ئەگەر لینکەکە تەنها نوسین بێت
+                  if not msg or not msg.media:
+                      print('⚠️ ئەم لینکەی داوتە تەنها نوسینە یان بەتاڵە! خۆم دەگەڕێم بەدوای ڤیدیۆکە لە نامەکانی پێشتر و دواتر...')
+                      msg_prev = await app.get_messages(chat_id, msg_id - 1)
+                      msg_next = await app.get_messages(chat_id, msg_id + 1)
                       
+                      if msg_prev and msg_prev.media:
+                          msg = msg_prev
+                          print(f'✅ ڤیدیۆکە لە نامەی پێشتر (ژمارە {msg_id - 1}) دۆزرایەوە!')
+                      elif msg_next and msg_next.media:
+                          msg = msg_next
+                          print(f'✅ ڤیدیۆکە لە نامەی دواتر (ژمارە {msg_id + 1}) دۆزرایەوە!')
+                      else:
+                          print('❌ هیچ ڤیدیۆیەک نەدۆزرایەوە! تکایە ڕاستەوخۆ کلیک لەسەر خودی ڤیدیۆکە بکە و لینکەکەی کۆپی بکە.')
+                          sys.exit(1)
+                          
                   print('📥 خەریکی داگرتنی ڤیدیۆکەیە (ئەمە چەند خولەکێک دەخایەنێت)...')
-                  await app.download_media(msg, file_name='downloads/video.mp4')
+                  # ڤیدیۆکە ڕاستەوخۆ لەناو فۆڵدەری سەرەکی پڕۆژەکە سەیڤ دەکرێت
+                  await app.download_media(msg, file_name='./video.mp4')
                   print('✅ ڤیدیۆکە بە سەرکەوتوویی داگیرا.')
           
           app.run(main())
@@ -69,10 +82,11 @@ jobs:
       - name: 🎵 Extract Audio & Delete Video
         run: |
           echo "خەریکی جیاکردنەوەی دەنگەکەیە لە ڕێگەی FFmpeg..."
-          ffmpeg -i "downloads/video.mp4" -q:a 0 -map a "${{ github.event.inputs.audio_name }}"
+          # دەرهێنانی دەنگەکە لەو ڤیدیۆیەی کە تازە داگیراوە
+          ffmpeg -i "./video.mp4" -q:a 0 -map a "${{ github.event.inputs.audio_name }}"
           echo "✅ دەنگەکە جیاکرایەوە."
           echo "🗑️ سڕینەوەی ڤیدیۆ گەورەکە بۆ بەتاڵکردنی شوێن..."
-          rm -rf downloads/video.mp4
+          rm -f "./video.mp4"
 
       - name: 🚀 Upload Audio to Hugging Face
         env:
@@ -90,6 +104,7 @@ jobs:
               sys.exit(1)
               
           api = HfApi()
+          # ناردن بۆ ناو ڕیپۆی دیاریکراو
           repo_id = 'Sarkoakram/sarko761'
           
           print(f'📤 ناردنی فایل بۆ Hugging Face: {audio_file}...')
