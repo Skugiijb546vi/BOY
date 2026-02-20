@@ -1,4 +1,4 @@
-name: Extract_Audio_From_Telegram_Ultimate
+name: Extract_Audio_From_Telegram_Final_Fix
 on:
   workflow_dispatch:
     inputs:
@@ -28,59 +28,61 @@ jobs:
           TG_URL: ${{ github.event.inputs.tg_url }}
         run: |
           python3 -c "
-          import os, sys
+          import os, sys, asyncio
           from pyrogram import Client
           
-          api_id = os.environ.get('TG_API_ID')
-          api_hash = os.environ.get('TG_API_HASH')
-          session_string = os.environ.get('TG_SESSION', '').strip()
-          url = os.environ.get('TG_URL')
-          
-          parts = url.rstrip('/').split('/')
-          if 'c' in parts:
-              chat_id = int('-100' + parts[-2])
-          else:
-              chat_id = parts[-2]
-          msg_id = int(parts[-1].split('?')[0])
-          
-          app = Client('my_account', api_id=int(api_id), api_hash=api_hash, session_string=session_string)
-          
           async def main():
+              api_id = int(os.environ.get('TG_API_ID'))
+              api_hash = os.environ.get('TG_API_HASH')
+              session_string = os.environ.get('TG_SESSION', '').strip()
+              url = os.environ.get('TG_URL').rstrip('/')
+              
+              # شیکردنەوەی لینکەکە بە شێوەیەکی سەلامەت
+              parts = url.split('/')
+              msg_id = int(parts[-1].split('?')[0])
+              chat_id = parts[-2]
+              
+              # ئەگەر کەناڵەکە پڕایڤێت بوو (بەپیتی c دەستپێدەکات)
+              if chat_id == 'c':
+                  chat_id = int('-100' + parts[-3])
+              
+              app = Client('my_account', api_id=api_id, api_hash=api_hash, session_string=session_string)
+              
               async with app:
+                  print(f'🔍 گەڕان بۆ نامەی {msg_id} لە {chat_id}...')
                   target_msg = None
-                  # گەڕان لە مەودایەکی فراوانتر (١٠ نامە بۆ پێش و پاش)
-                  print(f'🔍 خەریکی گەڕانم لە دەوروبەری نامەی {msg_id}...')
                   
-                  # سەرەتا پشکنینی خودی نامەکە، پاشان دەوروبەری
-                  search_range = [0] + [i for j in range(1, 11) for i in (j, -j)]
-                  
-                  for offset in search_range:
-                      msg = await app.get_messages(chat_id, msg_id + offset)
-                      if msg and (msg.video or msg.document or msg.audio or msg.animation):
-                          target_msg = msg
-                          print(f'✅ میدیا دۆزرایەوە لە نامەی: {msg_id + offset}')
-                          break
+                  # گەڕان لە مەودایەکی فراوان (٢٠ نامە بۆ پێش و پاش)
+                  for offset in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]:
+                      try:
+                          msg = await app.get_messages(chat_id, msg_id + offset)
+                          if msg and (msg.video or msg.document or msg.audio):
+                              target_msg = msg
+                              print(f'✅ میدیا دۆزرایەوە لە ئایدی: {msg_id + offset}')
+                              break
+                      except Exception as e:
+                          continue
                   
                   if not target_msg:
-                      print('❌ هیچ ڤیدیۆ یان فایلێک لەم مەودایەدا نەدۆزرایەوە!')
+                      print('❌ هیچ ڤیدیۆ یان فایلێک نەدۆزرایەوە!')
                       sys.exit(1)
                       
                   print('📥 دەست بە داگرتن دەکەم...')
-                  # داگرتنی فایلەکە بەبێ گوێدانە جۆرەکەی
-                  path = await app.download_media(target_msg, file_name='main_media')
-                  # گۆڕینی ناوی هەرچی دابەزیوە بۆ ناوێکی جێگیر
-                  if os.path.exists(path):
+                  path = await app.download_media(target_msg, file_name='input_file')
+                  print(f'✅ داگیرا: {path}')
+                  
+                  # ئەگەر فایلەکە ناوەکەی جیاواز بوو، ڕێکی دەخەینەوە
+                  if os.path.exists(path) and path != 'input_file':
                       os.rename(path, 'input_file')
-                      print(f'✅ فایلەکە ئامادەیە بۆ پرۆسێس.')
           
-          app.run(main())
+          asyncio.run(main())
           "
 
-      - name: 🎵 Extract Audio (Safe Mode)
+      - name: 🎵 Extract Audio
         run: |
           echo "🔊 جیاکردنەوەی دەنگ..."
-          # ئەم فەرمانە هەوڵ دەدات دەنگ لە هەر فایلێک دەربهێنێت تەنانەت ئەگەر تەنها ڤیدیۆش بێت
-          ffmpeg -i input_file -vn -ar 44100 -ac 2 -ab 192k -f mp3 "${{ github.event.inputs.audio_name }}" || ffmpeg -i input_file "${{ github.event.inputs.audio_name }}"
+          # بەکارهێنانی فۆرماتێکی پارێزراو بۆ FFmpeg
+          ffmpeg -i input_file -vn -q:a 2 "${{ github.event.inputs.audio_name }}"
           echo "✅ تەواو بوو."
 
       - name: 🚀 Upload to Hugging Face
@@ -100,7 +102,5 @@ jobs:
                   repo_type='dataset',
                   token=os.getenv('HF_TOKEN')
               )
-              print('🚀 ناردن بۆ Hugging Face سەرکەوتوو بوو!')
-          else:
-              print('❌ فایلەکە دروست نەبووە، پشکنینی FFmpeg بکە.')
+              print('🚀 ناردن سەرکەوتوو بوو!')
           "
