@@ -1,4 +1,4 @@
-name: Extract_Audio_From_Telegram_Private
+name: Extract_Audio_From_Telegram_Ultimate
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ jobs:
           sudo apt-get install -y ffmpeg -qq
           python -m pip install -U pip pyrogram tgcrypto huggingface_hub
 
-      - name: ⬇️ Download Video via Pyrogram
+      - name: ⬇️ Download Media via Pyrogram
         env:
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
@@ -47,36 +47,41 @@ jobs:
           
           async def main():
               async with app:
-                  print(f'🔍 گەڕان بۆ نامەی {msg_id}...')
-                  msg = await app.get_messages(chat_id, msg_id)
+                  target_msg = None
+                  # گەڕان لە مەودایەکی فراوانتر (١٠ نامە بۆ پێش و پاش)
+                  print(f'🔍 خەریکی گەڕانم لە دەوروبەری نامەی {msg_id}...')
                   
-                  # ئەگەر پۆستەکە هیچی تێدا نەبوو، سەیری دەوروبەر دەکات
-                  if not msg or not (msg.video or msg.document):
-                      print('⚠️ گەڕان لە نامەکانی تر بۆ دۆزینەوەی ڤیدیۆ...')
-                      for offset in [-1, 1, -2, 2]:
-                          temp_msg = await app.get_messages(chat_id, msg_id + offset)
-                          if temp_msg and (temp_msg.video or temp_msg.document):
-                              msg = temp_msg
-                              break
+                  # سەرەتا پشکنینی خودی نامەکە، پاشان دەوروبەری
+                  search_range = [0] + [i for j in range(1, 11) for i in (j, -j)]
                   
-                  if not msg or not (msg.video or msg.document):
-                      print('❌ هیچ ڤیدیۆیەک نەدۆزرایەوە!')
+                  for offset in search_range:
+                      msg = await app.get_messages(chat_id, msg_id + offset)
+                      if msg and (msg.video or msg.document or msg.audio or msg.animation):
+                          target_msg = msg
+                          print(f'✅ میدیا دۆزرایەوە لە نامەی: {msg_id + offset}')
+                          break
+                  
+                  if not target_msg:
+                      print('❌ هیچ ڤیدیۆ یان فایلێک لەم مەودایەدا نەدۆزرایەوە!')
                       sys.exit(1)
                       
-                  print('📥 خەریکی داگرتنی ڤیدیۆکەیە...')
-                  # لێرەدا دڵنیا دەبینەوە کە تەنها میدیاکە دادەگرێت نەک وێنەی بەرگ
-                  path = await app.download_media(msg, file_name='main_video.mp4')
-                  print(f'✅ داگیرا لە شوێنی: {path}')
+                  print('📥 دەست بە داگرتن دەکەم...')
+                  # داگرتنی فایلەکە بەبێ گوێدانە جۆرەکەی
+                  path = await app.download_media(target_msg, file_name='main_media')
+                  # گۆڕینی ناوی هەرچی دابەزیوە بۆ ناوێکی جێگیر
+                  if os.path.exists(path):
+                      os.rename(path, 'input_file')
+                      print(f'✅ فایلەکە ئامادەیە بۆ پرۆسێس.')
           
           app.run(main())
           "
 
-      - name: 🎵 Extract Audio
+      - name: 🎵 Extract Audio (Safe Mode)
         run: |
-          echo "خەریکی جیاکردنەوەی دەنگ..."
-          # بەکارهێنانی فلتەری زیاتر بۆ ئەوەی ئەگەر فایلەکە کێشەشی هەبوو هەر دەنگەکە دەربهێنێت
-          ffmpeg -i main_video.mp4 -vn -acodec libmp3lame -q:a 2 "${{ github.event.inputs.audio_name }}"
-          echo "✅ دەنگەکە ئامادەیە."
+          echo "🔊 جیاکردنەوەی دەنگ..."
+          # ئەم فەرمانە هەوڵ دەدات دەنگ لە هەر فایلێک دەربهێنێت تەنانەت ئەگەر تەنها ڤیدیۆش بێت
+          ffmpeg -i input_file -vn -ar 44100 -ac 2 -ab 192k -f mp3 "${{ github.event.inputs.audio_name }}" || ffmpeg -i input_file "${{ github.event.inputs.audio_name }}"
+          echo "✅ تەواو بوو."
 
       - name: 🚀 Upload to Hugging Face
         env:
@@ -95,7 +100,7 @@ jobs:
                   repo_type='dataset',
                   token=os.getenv('HF_TOKEN')
               )
-              print('✅ فایلەکە نێردرا!')
+              print('🚀 ناردن بۆ Hugging Face سەرکەوتوو بوو!')
           else:
-              print('❌ فایلەکە دروست نەبووە!')
+              print('❌ فایلەکە دروست نەبووە، پشکنینی FFmpeg بکە.')
           "
