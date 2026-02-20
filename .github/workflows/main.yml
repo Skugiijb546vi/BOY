@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       tg_url:
-        description: 'لینکی پۆستی تێلیگرام (نموونە: https://t.me/Movie_Timee1/2661)'
+        description: 'لینکی پۆستی تێلیگرام'
         required: true
       audio_name:
-        description: 'ناوی فایلە دەنگییەکە لە Hugging Face (بە .mp3 کۆتایی بێت)'
+        description: 'ناوی فایلە دەنگییەکە'
         required: true
         default: 'movie_audio.mp3'
 
@@ -33,14 +33,9 @@ jobs:
           
           api_id = os.environ.get('TG_API_ID')
           api_hash = os.environ.get('TG_API_HASH')
-          # پاککردنەوەی کۆدەکە لە هەر بۆشایی و ئینتەرێکی زیادە
           session_string = os.environ.get('TG_SESSION', '').strip()
           url = os.environ.get('TG_URL')
           
-          if not all([api_id, api_hash, session_string]):
-              print('❌ هەڵە: زانیارییەکانی تێلیگرام لە Secrets نەدۆزرانەوە!')
-              sys.exit(1)
-              
           parts = url.rstrip('/').split('/')
           if 'c' in parts:
               chat_id = int('-100' + parts[-2])
@@ -52,68 +47,55 @@ jobs:
           
           async def main():
               async with app:
-                  print(f'🔍 دەگەڕێم بەدوای نامەی ژمارە {msg_id} لە {chat_id}...')
+                  print(f'🔍 گەڕان بۆ نامەی {msg_id}...')
                   msg = await app.get_messages(chat_id, msg_id)
                   
-                  # گەڕان بەدوای ڤیدیۆکە ئەگەر لینکەکە تەنها نوسین بێت
-                  if not msg or not msg.media:
-                      print('⚠️ ئەم لینکەی داوتە تەنها نوسینە یان بەتاڵە! خۆم دەگەڕێم بەدوای ڤیدیۆکە لە نامەکانی پێشتر و دواتر...')
-                      msg_prev = await app.get_messages(chat_id, msg_id - 1)
-                      msg_next = await app.get_messages(chat_id, msg_id + 1)
+                  # ئەگەر پۆستەکە هیچی تێدا نەبوو، سەیری دەوروبەر دەکات
+                  if not msg or not (msg.video or msg.document):
+                      print('⚠️ گەڕان لە نامەکانی تر بۆ دۆزینەوەی ڤیدیۆ...')
+                      for offset in [-1, 1, -2, 2]:
+                          temp_msg = await app.get_messages(chat_id, msg_id + offset)
+                          if temp_msg and (temp_msg.video or temp_msg.document):
+                              msg = temp_msg
+                              break
+                  
+                  if not msg or not (msg.video or msg.document):
+                      print('❌ هیچ ڤیدیۆیەک نەدۆزرایەوە!')
+                      sys.exit(1)
                       
-                      if msg_prev and msg_prev.media:
-                          msg = msg_prev
-                          print(f'✅ ڤیدیۆکە لە نامەی پێشتر (ژمارە {msg_id - 1}) دۆزرایەوە!')
-                      elif msg_next and msg_next.media:
-                          msg = msg_next
-                          print(f'✅ ڤیدیۆکە لە نامەی دواتر (ژمارە {msg_id + 1}) دۆزرایەوە!')
-                      else:
-                          print('❌ هیچ ڤیدیۆیەک نەدۆزرایەوە! تکایە ڕاستەوخۆ کلیک لەسەر خودی ڤیدیۆکە بکە و لینکەکەی کۆپی بکە.')
-                          sys.exit(1)
-                          
-                  print('📥 خەریکی داگرتنی ڤیدیۆکەیە (ئەمە چەند خولەکێک دەخایەنێت)...')
-                  # ڤیدیۆکە ڕاستەوخۆ لەناو فۆڵدەری سەرەکی پڕۆژەکە سەیڤ دەکرێت
-                  await app.download_media(msg, file_name='./video.mp4')
-                  print('✅ ڤیدیۆکە بە سەرکەوتوویی داگیرا.')
+                  print('📥 خەریکی داگرتنی ڤیدیۆکەیە...')
+                  # لێرەدا دڵنیا دەبینەوە کە تەنها میدیاکە دادەگرێت نەک وێنەی بەرگ
+                  path = await app.download_media(msg, file_name='main_video.mp4')
+                  print(f'✅ داگیرا لە شوێنی: {path}')
           
           app.run(main())
           "
 
-      - name: 🎵 Extract Audio & Delete Video
+      - name: 🎵 Extract Audio
         run: |
-          echo "خەریکی جیاکردنەوەی دەنگەکەیە لە ڕێگەی FFmpeg..."
-          # دەرهێنانی دەنگەکە لەو ڤیدیۆیەی کە تازە داگیراوە
-          ffmpeg -i "./video.mp4" -q:a 0 -map a "${{ github.event.inputs.audio_name }}"
-          echo "✅ دەنگەکە جیاکرایەوە."
-          echo "🗑️ سڕینەوەی ڤیدیۆ گەورەکە بۆ بەتاڵکردنی شوێن..."
-          rm -f "./video.mp4"
+          echo "خەریکی جیاکردنەوەی دەنگ..."
+          # بەکارهێنانی فلتەری زیاتر بۆ ئەوەی ئەگەر فایلەکە کێشەشی هەبوو هەر دەنگەکە دەربهێنێت
+          ffmpeg -i main_video.mp4 -vn -acodec libmp3lame -q:a 2 "${{ github.event.inputs.audio_name }}"
+          echo "✅ دەنگەکە ئامادەیە."
 
-      - name: 🚀 Upload Audio to Hugging Face
+      - name: 🚀 Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python3 -c "
-          import os, sys
+          import os
           from huggingface_hub import HfApi
-          
-          token = os.getenv('HF_TOKEN')
-          audio_file = '${{ github.event.inputs.audio_name }}'
-          
-          if not os.path.exists(audio_file):
-              print('❌ هەڵە: فایلە دەنگییەکە نەدۆزرایەوە!')
-              sys.exit(1)
-              
           api = HfApi()
-          # ناردن بۆ ناو ڕیپۆی دیاریکراو
-          repo_id = 'Sarkoakram/sarko761'
-          
-          print(f'📤 ناردنی فایل بۆ Hugging Face: {audio_file}...')
-          api.upload_file(
-              path_or_fileobj=audio_file,
-              path_in_repo=audio_file,
-              repo_id=repo_id,
-              repo_type='dataset',
-              token=token
-          )
-          print('✅ سەد لە سەد سەرکەوتوو بوو!')
+          audio_file = '${{ github.event.inputs.audio_name }}'
+          if os.path.exists(audio_file):
+              api.upload_file(
+                  path_or_fileobj=audio_file,
+                  path_in_repo=audio_file,
+                  repo_id='Sarkoakram/sarko761',
+                  repo_type='dataset',
+                  token=os.getenv('HF_TOKEN')
+              )
+              print('✅ فایلەکە نێردرا!')
+          else:
+              print('❌ فایلەکە دروست نەبووە!')
           "
