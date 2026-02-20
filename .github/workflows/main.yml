@@ -33,20 +33,18 @@ jobs:
           
           api_id = os.environ.get('TG_API_ID')
           api_hash = os.environ.get('TG_API_HASH')
-          session_string = os.environ.get('TG_SESSION')
+          # لێرەدا فەنکشنی strip() مان داناوە بۆ پاککردنەوەی هەموو بۆشایی و ئینتەرێکی زیادە لە کۆدەکەدا
+          session_string = os.environ.get('TG_SESSION', '').strip()
           url = os.environ.get('TG_URL')
           
           if not all([api_id, api_hash, session_string]):
               print('❌ هەڵە: زانیارییەکانی تێلیگرام لە Secrets نەدۆزرانەوە!')
               sys.exit(1)
               
-          # جیاکردنەوەی ئایدی کەناڵ و پۆست لە لینکەکەوە
           parts = url.rstrip('/').split('/')
           if 'c' in parts:
-              # بۆ کەناڵی تایبەت (Private)
               chat_id = int('-100' + parts[-2])
           else:
-              # بۆ کەناڵی گشتی (Public)
               chat_id = parts[-2]
           msg_id = int(parts[-1].split('?')[0])
           
@@ -62,7 +60,7 @@ jobs:
                       sys.exit(1)
                       
                   print('📥 خەریکی داگرتنی ڤیدیۆکەیە (ئەمە چەند خولەکێک دەخایەنێت)...')
-                  await app.download_media(msg, file_name='video.mp4')
+                  await app.download_media(msg, file_name='downloads/video.mp4')
                   print('✅ ڤیدیۆکە بە سەرکەوتوویی داگیرا.')
           
           app.run(main())
